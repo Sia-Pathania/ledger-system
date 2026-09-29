@@ -2,8 +2,54 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Ledger } from '../src/ledger.js';
 
-const setup = () => { const l = new Ledger(); l.createAccount('a', 'USD', 100); l.createAccount('b', 'USD', 0); return l; };
-test('transfers atomically and is idempotent', async () => { const l = setup(); const first = await l.transfer({ source: 'a', destination: 'b', amount: 25, idempotencyKey: 'x' }); const second = await l.transfer({ source: 'a', destination: 'b', amount: 25, idempotencyKey: 'x' }); assert.equal(first.transactionId, second.transactionId); assert.equal(l.getAccount('a').balance, 75); assert.equal(l.getAccount('b').balance, 25); });
-test('concurrent transfers do not lose updates', async () => { const l = setup(); await Promise.all([...Array(4)].map((_, i) => l.transfer({ source: 'a', destination: 'b', amount: 10, idempotencyKey: String(i) }))); assert.equal(l.getAccount('a').balance, 60); assert.equal(l.getAccount('b').balance, 40); });
-test('supports currency conversion and reversal', async () => { const l = new Ledger(); l.createAccount('a', 'USD', 100); l.createAccount('b', 'EUR', 0); l.setExchangeRate('USD', 'EUR', 0.9); const tx = await l.transfer({ source: 'a', destination: 'b', amount: 10 }); assert.equal(l.getAccount('b').balance, 9); await l.reverse(tx.transactionId); assert.equal(l.getAccount('a').balance, 100); assert.equal(l.getAccount('b').balance, 0); });
-test('reports reconciliation and total verification', async () => { const l = setup(); await l.transfer({ source: 'a', destination: 'b', amount: 20 }); assert.equal(l.verifyTotal(100).balanced, true); assert.ok(l.reconcile().every((r) => r.balanced)); });
+const setup = () => {
+  const ledger = new Ledger();
+  ledger.createAccount('a', 'USD', 100);
+  ledger.createAccount('b', 'USD', 0);
+  return ledger;
+};
+
+test('transfers atomically and is idempotent', async () => {
+  const ledger = setup();
+  const first = await ledger.transfer({ source: 'a', destination: 'b', amount: 25, idempotencyKey: 'x' });
+  const second = await ledger.transfer({ source: 'a', destination: 'b', amount: 25, idempotencyKey: 'x' });
+
+  assert.equal(first.transactionId, second.transactionId);
+  assert.equal(ledger.getAccount('a').balance, 75);
+  assert.equal(ledger.getAccount('b').balance, 25);
+});
+
+test('concurrent transfers do not lose updates', async () => {
+  const ledger = setup();
+  await Promise.all([...Array(4)].map((_, index) => ledger.transfer({
+    source: 'a',
+    destination: 'b',
+    amount: 10,
+    idempotencyKey: String(index),
+  })));
+
+  assert.equal(ledger.getAccount('a').balance, 60);
+  assert.equal(ledger.getAccount('b').balance, 40);
+});
+
+test('supports currency conversion and reversal', async () => {
+  const ledger = new Ledger();
+  ledger.createAccount('a', 'USD', 100);
+  ledger.createAccount('b', 'EUR', 0);
+  ledger.setExchangeRate('USD', 'EUR', 0.9);
+
+  const transaction = await ledger.transfer({ source: 'a', destination: 'b', amount: 10 });
+  assert.equal(ledger.getAccount('b').balance, 9);
+
+  await ledger.reverse(transaction.transactionId);
+  assert.equal(ledger.getAccount('a').balance, 100);
+  assert.equal(ledger.getAccount('b').balance, 0);
+});
+
+test('reports reconciliation and total verification', async () => {
+  const ledger = setup();
+  await ledger.transfer({ source: 'a', destination: 'b', amount: 20 });
+
+  assert.equal(ledger.verifyTotal(100).balanced, true);
+  assert.ok(ledger.reconcile().every((result) => result.balanced));
+});
